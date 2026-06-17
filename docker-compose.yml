@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  outline:
+    image: flameshikari/outline-ru:0.85.0
+    env_file: ./docker.env
+    extra_hosts:
+      - "wiki.npi.msk.ru:10.233.100.102"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    volumes:
+      - outline-data:/var/lib/outline/data
+      - ./patches/S3Storage.js:/opt/outline/build/server/storage/files/S3Storage.js:ro
+      - ./patches/attachments.js:/opt/outline/build/server/routes/api/attachments/attachments.js:ro
+      - ./patches/api-index.js:/opt/outline/build/server/routes/api/index.js:ro
+      - ./patches/Attachment.js:/opt/outline/build/server/models/Attachment.js:ro
+
+  postgres:
+    image: postgres:15
+    env_file: ./docker.env
+    environment:
+      POSTGRES_USER: outline
+      POSTGRES_DB: outline
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  outline-data:
+  pg-data:
+  redis-data:
+
