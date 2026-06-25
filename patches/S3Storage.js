@@ -38,51 +38,15 @@ class S3Storage extends _BaseStorage.default {
         key,
         acl
       } = _ref;
-      const buffer = Buffer.isBuffer(body) ? body : await this.streamToBuffer(body);
-      const length = contentLength || buffer.length;
-      if (buffer.length <= S3Storage.chunkSize) {
-        await this.client.send(new _clientS.PutObjectCommand({
-          ACL: acl,
-          Bucket: this.getBucket(),
-          Key: key,
-          ContentType: contentType,
-          ContentLength: length,
-          ContentDisposition: this.getContentDisposition(contentType),
-          Body: buffer
-        }));
-      } else {
-        const chunks = Math.ceil(buffer.length / S3Storage.chunkSize);
-        for (let index = 0; index < chunks; index++) {
-          const chunk = buffer.subarray(index * S3Storage.chunkSize, Math.min((index + 1) * S3Storage.chunkSize, buffer.length));
-          await this.client.send(new _clientS.PutObjectCommand({
-            ACL: acl,
-            Bucket: this.getBucket(),
-            Key: this.getChunkKey(key, index),
-            ContentType: "application/octet-stream",
-            ContentLength: chunk.length,
-            Body: chunk
-          }));
-        }
-        const meta = Buffer.from(JSON.stringify({
-          chunked: true,
-          version: 1,
-          chunkSize: S3Storage.chunkSize,
-          chunks,
-          size: buffer.length,
-          contentType,
-          acl
-        }));
-        await this.client.send(new _clientS.PutObjectCommand({
-          ACL: acl,
-          Bucket: this.getBucket(),
-          Key: this.getMetaKey(key),
-          ContentType: "application/json",
-          ContentLength: meta.length,
-          Body: meta
-        }));
+      const filePath = this.getLocalFilePath(key);
+      const exists = await _fsExtra.default.pathExists(filePath);
+      if (exists) {
+        throw new Error(`File already exists at ${key}`);
       }
-      const endpoint = this.getPublicEndpoint(true);
-      return `${endpoint}/${key}`;
+      await _fsExtra.default.ensureDir(_path.default.dirname(filePath));
+      const buffer = Buffer.isBuffer(body) ? body : await this.streamToBuffer(body);
+      await _fsExtra.default.writeFile(filePath, buffer);
+      return this.getUrlForKey(key);
     });
     _defineProperty(this, "getSignedUrl", async function (key) {
       let expiresIn = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : S3Storage.defaultSignedUrlExpires;
@@ -145,9 +109,14 @@ class S3Storage extends _BaseStorage.default {
     return process.env.AWS_S3_UPLOAD_PROXY_URL || this.getPublicEndpoint(isServerUpload);
   }
   getUrlForKey(key) {
-    return `${this.getPublicEndpoint()}/${key}`;
+    return `/api/files.get?key=${encodeURIComponent(key)}`;
   }
   async deleteFile(key) {
+    const localPath = this.getLocalFilePath(key);
+    if (await _fsExtra.default.pathExists(localPath)) {
+      await _fsExtra.default.remove(localPath);
+      return;
+    }
     const meta = await this.getChunkMeta(key);
     if (meta) {
       for (let index = 0; index < meta.chunks; index++) {
@@ -169,6 +138,15 @@ class S3Storage extends _BaseStorage.default {
   }
   getFileHandle(key) {
     return new Promise((resolve, reject) => {
+      const localPath = this.getLocalFilePath(key);
+      void _fsExtra.default.pathExists(localPath).then(exists => {
+        if (exists) {
+          resolve({
+            path: localPath,
+            cleanup: async () => {}
+          });
+        }
+      }).catch(reject);
       _tmp.default.dir((err, tmpDir) => {
         if (err) {
           return reject(err);
@@ -193,6 +171,10 @@ class S3Storage extends _BaseStorage.default {
     });
   }
   async getFileStream(key, range) {
+    const localPath = this.getLocalFilePath(key);
+    if (await _fsExtra.default.pathExists(localPath)) {
+      return _fsExtra.default.createReadStream(localPath, range);
+    }
     const meta = await this.getChunkMeta(key);
     if (meta) {
       const start = range?.start ?? 0;
@@ -229,6 +211,13 @@ class S3Storage extends _BaseStorage.default {
     });
   }
   async stat(key) {
+    const localPath = this.getLocalFilePath(key);
+    if (await _fsExtra.default.pathExists(localPath)) {
+      const stats = await _fsExtra.default.stat(localPath);
+      return {
+        size: stats.size
+      };
+    }
     const meta = await this.getChunkMeta(key);
     if (meta) {
       return {
@@ -248,6 +237,9 @@ class S3Storage extends _BaseStorage.default {
   }
   getChunkKey(key, index) {
     return `${key}.chunks/${String(index).padStart(6, "0")}`;
+  }
+  getLocalFilePath(key) {
+    return _path.default.join(_env.default.FILE_STORAGE_LOCAL_ROOT_DIR || "/var/lib/outline/data", key);
   }
   async getChunkMeta(key) {
     try {
@@ -305,4 +297,4 @@ class S3Storage extends _BaseStorage.default {
   }
 }
 exports.default = S3Storage;
-_defineProperty(S3Storage, "chunkSize", 8 * 1024);
+_defineProperty(S3Storage, "chunkSize", 17407);

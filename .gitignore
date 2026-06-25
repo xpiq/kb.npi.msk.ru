@@ -4,3 +4,5 @@ docker.env
 *.tmp
 node_modules/
 
+
+docker.env.bak

@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   outline:
-    image: flameshikari/outline-ru:0.85.0
+    image: flameshikari/outline-ru:1.8.1
     env_file: ./docker.env
     extra_hosts:
       - "wiki.npi.msk.ru:10.233.100.102"
