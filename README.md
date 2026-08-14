@@ -1,36 +1,43 @@
-# kb.npi.msk.ru
+# NPI knowledge base and IT Help
 
-Docker deployment for the NPI knowledge base running `flameshikari/outline-ru:0.85.0`.
+Production deployment for the internal Outline editor and the public,
+mobile-first instruction service.
 
-This repository keeps the Outline runtime patches needed for Storj-backed file storage. Secrets are not committed; create `docker.env` from `docker.env.example` during deployment.
+- Editor: `https://wiki.npi.msk.ru`
+- Public instructions: `https://kb.it-help.online`
+- Storj public domain: `https://media.npi.msk.ru` (bucket `strapi`)
+
+## Runtime
+
+- Outline RU `1.9.2` on port `3000`
+- QR sidecar on port `3001`
+- PostgreSQL 15 and Redis 7
+- Maximum Outline and Nginx upload size: 512 MiB
+
+The public hostname is bound to one shared Outline collection. Authentication,
+settings, administration, and editing API routes are blocked at Nginx. Editors
+continue to work through `wiki.npi.msk.ru`.
+
+Every public page receives a mobile QR button from the patched Outline HTML
+template. The sidecar generates an SVG for the current page and provides a
+download/copy dialog.
 
 ## Deploy
 
 ```sh
 cp docker.env.example docker.env
-# fill docker.env with deploy secrets and Storj credentials
-docker compose up -d
+# Fill docker.env with deployment secrets and Storj credentials.
+docker compose up -d --build
 ```
 
-## Storj Upload Patch
+The mounted runtime patches are in `patches/`. Reverse-proxy configurations for
+the editor and public hostname are in `nginx/`.
 
-The Storj S3 gateway was timing out on larger single `PutObject` uploads from the server. The patched storage layer writes larger files as 8 KB chunk objects plus a small metadata object, disables S3 keep-alive for Storj requests, and serves downloads back through Outline with `/api/files.get`.
+## Storj status
 
-The mounted patches are:
-
-- `patches/S3Storage.js` - chunked Storj storage, backend signed download URLs, no keep-alive S3 client.
-- `patches/Attachment.js` - buffers uploaded temp files before storage.
-- `patches/attachments.js` - makes browser uploads go to Outline backend `/api/files.create`.
-- `patches/api-index.js` - mounts the storage plugin upload route while `FILE_STORAGE=s3`.
-
-## Nginx
-
-The reverse proxy must pass the original host to Outline:
-
-```nginx
-proxy_set_header Host $host;
-proxy_set_header X-Forwarded-Proto $scheme;
-```
-
-An example config is in `nginx/wiki.npi.msk.ru.conf`.
-
+The existing S3 credentials can write small objects to `strapi`, and those
+objects are available through `media.npi.msk.ru`. Sustained uploads through the
+Storj S3 gateway currently stall; this was reproduced from two servers with a
+1 MiB probe. Until the gateway or a native Storj access grant is fixed, video
+uploads remain on Outline local storage to avoid stalled or false-success
+uploads. The 512 MiB application limit is already active.

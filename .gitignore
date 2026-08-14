@@ -3,6 +3,7 @@ docker.env
 *.log
 *.tmp
 node_modules/
+deployment/
 
 
 docker.env.bak

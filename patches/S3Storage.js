@@ -9,6 +9,7 @@ var _https = _interopRequireDefault(require("https"));
 var _nodeHttpHandler = require("@smithy/node-http-handler");
 var _jsonwebtoken = _interopRequireDefault(require("jsonwebtoken"));
 var _stream = require("stream");
+var _streamPromises = require("stream/promises");
 var _clientS = require("@aws-sdk/client-s3");
 var _libStorage = require("@aws-sdk/lib-storage");
 require("@aws-sdk/signature-v4-crt");
@@ -16,7 +17,7 @@ var _s3PresignedPost = require("@aws-sdk/s3-presigned-post");
 var _s3RequestPresigner = require("@aws-sdk/s3-request-presigner");
 var _fsExtra = _interopRequireDefault(require("fs-extra"));
 var _invariant = _interopRequireDefault(require("invariant"));
-var _compact = _interopRequireDefault(require("lodash/compact"));
+var _compat = require("es-toolkit/compat");
 var _tmp = _interopRequireDefault(require("tmp"));
 var _env = _interopRequireDefault(require("./../../env"));
 var _Logger = _interopRequireDefault(require("./../../logging/Logger"));
@@ -44,8 +45,11 @@ class S3Storage extends _BaseStorage.default {
         throw new Error(`File already exists at ${key}`);
       }
       await _fsExtra.default.ensureDir(_path.default.dirname(filePath));
-      const buffer = Buffer.isBuffer(body) ? body : await this.streamToBuffer(body);
-      await _fsExtra.default.writeFile(filePath, buffer);
+      if (Buffer.isBuffer(body) || body instanceof Uint8Array) {
+        await _fsExtra.default.writeFile(filePath, body);
+      } else {
+        await (0, _streamPromises.pipeline)(body, _fsExtra.default.createWriteStream(filePath));
+      }
       return this.getUrlForKey(key);
     });
     _defineProperty(this, "getSignedUrl", async function (key) {
@@ -76,7 +80,7 @@ class S3Storage extends _BaseStorage.default {
     const params = {
       Bucket: _env.default.AWS_S3_UPLOAD_BUCKET_NAME,
       Key: key,
-      Conditions: (0, _compact.default)([["content-length-range", 0, maxUploadSize], ["starts-with", "$Content-Type", contentType], ["starts-with", "$Cache-Control", ""]]),
+      Conditions: (0, _compat.compact)([["content-length-range", 0, maxUploadSize], ["starts-with", "$Content-Type", contentType], ["starts-with", "$Cache-Control", ""]]),
       Fields: {
         "Content-Disposition": this.getContentDisposition(contentType),
         key,
@@ -85,6 +89,30 @@ class S3Storage extends _BaseStorage.default {
       Expires: 3600
     };
     return (0, _s3PresignedPost.createPresignedPost)(this.client, params);
+  }
+  async getPresignedPut(key, acl, contentLength, contentType) {
+    const contentDisposition = this.getContentDisposition(contentType);
+    const cacheControl = "public, max-age=31557600, immutable";
+    const command = new _clientS.PutObjectCommand({
+      Bucket: this.getBucketForKey(key),
+      Key: key,
+      ContentType: contentType,
+      ContentLength: contentLength,
+      ContentDisposition: contentDisposition,
+      CacheControl: cacheControl
+    });
+    const url = await (0, _s3RequestPresigner.getSignedUrl)(this.client, command, {
+      expiresIn: 3600
+    });
+    return {
+      url,
+      headers: {
+        "Content-Type": contentType,
+        "Content-Length": String(contentLength),
+        "Content-Disposition": contentDisposition,
+        "Cache-Control": cacheControl
+      }
+    };
   }
   getPublicEndpoint(isServerUpload) {
     if (_env.default.AWS_S3_ACCELERATE_URL) {
@@ -109,6 +137,10 @@ class S3Storage extends _BaseStorage.default {
     return process.env.AWS_S3_UPLOAD_PROXY_URL || this.getPublicEndpoint(isServerUpload);
   }
   getUrlForKey(key) {
+    if (this.isMediaKey(key)) {
+      const base = (process.env.MEDIA_PUBLIC_URL || "https://media.npi.msk.ru").replace(/\/$/, "");
+      return `${base}/${key}`;
+    }
     return `/api/files.get?key=${encodeURIComponent(key)}`;
   }
   async deleteFile(key) {
@@ -121,18 +153,18 @@ class S3Storage extends _BaseStorage.default {
     if (meta) {
       for (let index = 0; index < meta.chunks; index++) {
         await this.client.send(new _clientS.DeleteObjectCommand({
-          Bucket: this.getBucket(),
+          Bucket: this.getBucketForKey(key),
           Key: this.getChunkKey(key, index)
         }));
       }
       await this.client.send(new _clientS.DeleteObjectCommand({
-        Bucket: this.getBucket(),
+        Bucket: this.getBucketForKey(key),
         Key: this.getMetaKey(key)
       }));
       return;
     }
     await this.client.send(new _clientS.DeleteObjectCommand({
-      Bucket: this.getBucket(),
+      Bucket: this.getBucketForKey(key),
       Key: key
     }));
   }
@@ -141,34 +173,55 @@ class S3Storage extends _BaseStorage.default {
       const localPath = this.getLocalFilePath(key);
       void _fsExtra.default.pathExists(localPath).then(exists => {
         if (exists) {
-          resolve({
+          return resolve({
             path: localPath,
             cleanup: async () => {}
           });
         }
-      }).catch(reject);
-      _tmp.default.dir((err, tmpDir) => {
-        if (err) {
-          return reject(err);
-        }
-        const tmpFile = _path.default.join(tmpDir, "tmp");
-        const dest = _fsExtra.default.createWriteStream(tmpFile);
-        dest.on("error", reject);
-        dest.on("finish", () => resolve({
-          path: tmpFile,
-          cleanup: () => _fsExtra.default.rm(tmpFile)
-        }));
-        void this.getFileStream(key).then(stream => {
-          if (!stream) {
-            return reject(new Error("No stream available"));
+        _tmp.default.dir((err, tmpDir) => {
+          if (err) {
+            return reject(err);
           }
-          stream.on("error", error => {
-            dest.end();
-            reject(error);
-          }).pipe(dest);
+          const tmpFile = _path.default.join(tmpDir, "tmp");
+          const dest = _fsExtra.default.createWriteStream(tmpFile);
+          dest.on("error", reject);
+          dest.on("finish", () => resolve({
+            path: tmpFile,
+            cleanup: () => _fsExtra.default.rm(tmpFile)
+          }));
+          void this.getFileStream(key).then(stream => {
+            if (!stream) {
+              return reject(new Error("No stream available"));
+            }
+            stream.on("error", error => {
+              dest.end();
+              reject(error);
+            }).pipe(dest);
+          });
         });
-      });
+      }).catch(reject);
     });
+  }
+  async getFileExists(key) {
+    const localPath = this.getLocalFilePath(key);
+    if (await _fsExtra.default.pathExists(localPath)) {
+      return true;
+    }
+    if (await this.getChunkMeta(key)) {
+      return true;
+    }
+    try {
+      await this.client.send(new _clientS.HeadObjectCommand({
+        Bucket: this.getBucketForKey(key),
+        Key: key
+      }));
+      return true;
+    } catch (err) {
+      if (err?.name === "NoSuchKey" || err?.name === "NotFound" || err?.$metadata?.httpStatusCode === 404) {
+        return false;
+      }
+      throw err;
+    }
   }
   async getFileStream(key, range) {
     const localPath = this.getLocalFilePath(key);
@@ -188,7 +241,7 @@ class S3Storage extends _BaseStorage.default {
         const lastChunk = Math.floor(end / meta.chunkSize);
         for (let index = firstChunk; index <= lastChunk; index++) {
           const item = await self.client.send(new _clientS.GetObjectCommand({
-            Bucket: self.getBucket(),
+            Bucket: self.getBucketForKey(key),
             Key: self.getChunkKey(key, index)
           }));
           const chunk = await self.streamToBuffer(item.Body);
@@ -200,7 +253,7 @@ class S3Storage extends _BaseStorage.default {
       })());
     }
     return this.client.send(new _clientS.GetObjectCommand({
-      Bucket: this.getBucket(),
+      Bucket: this.getBucketForKey(key),
       Key: key,
       Range: range ? `bytes=${range.start}-${range.end}` : undefined
     })).then(item => item.Body).catch(err => {
@@ -225,7 +278,7 @@ class S3Storage extends _BaseStorage.default {
       };
     }
     const item = await this.client.send(new _clientS.HeadObjectCommand({
-      Bucket: this.getBucket(),
+      Bucket: this.getBucketForKey(key),
       Key: key
     }));
     return {
@@ -244,7 +297,7 @@ class S3Storage extends _BaseStorage.default {
   async getChunkMeta(key) {
     try {
       const item = await this.client.send(new _clientS.GetObjectCommand({
-        Bucket: this.getBucket(),
+        Bucket: this.getBucketForKey(key),
         Key: this.getMetaKey(key)
       }));
       const buffer = await this.streamToBuffer(item.Body);
@@ -294,6 +347,15 @@ class S3Storage extends _BaseStorage.default {
   }
   getBucket() {
     return _env.default.AWS_S3_ACCELERATE_URL || _env.default.AWS_S3_UPLOAD_BUCKET_NAME || "";
+  }
+  isMediaKey(key) {
+    return key.startsWith("public/media/");
+  }
+  getBucketForKey(key) {
+    if (this.isMediaKey(key)) {
+      return process.env.MEDIA_S3_BUCKET_NAME || "strapi";
+    }
+    return this.getBucket();
   }
 }
 exports.default = S3Storage;

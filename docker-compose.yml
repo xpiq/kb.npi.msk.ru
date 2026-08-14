@@ -1,8 +1,6 @@
-version: "3.8"
-
 services:
   outline:
-    image: flameshikari/outline-ru:1.8.1
+    image: flameshikari/outline-ru:1.9.2
     env_file: ./docker.env
     extra_hosts:
       - "wiki.npi.msk.ru:10.233.100.102"
@@ -17,7 +15,18 @@ services:
       - ./patches/S3Storage.js:/opt/outline/build/server/storage/files/S3Storage.js:ro
       - ./patches/attachments.js:/opt/outline/build/server/routes/api/attachments/attachments.js:ro
       - ./patches/api-index.js:/opt/outline/build/server/routes/api/index.js:ro
-      - ./patches/Attachment.js:/opt/outline/build/server/models/Attachment.js:ro
+      - ./patches/documentMover.js:/opt/outline/build/server/commands/documentMover.js:ro
+      - ./patches/Model.js:/opt/outline/build/server/models/base/Model.js:ro
+      - ./patches/shareDomains.js:/opt/outline/build/server/middlewares/shareDomains.js:ro
+      - ./patches/index.html:/opt/outline/build/app/index.html:ro
+
+  qr:
+    build: ./qr-service
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    environment:
+      PUBLIC_ORIGIN: https://kb.it-help.online
 
   postgres:
     image: postgres:15
@@ -40,4 +49,3 @@ volumes:
   outline-data:
   pg-data:
   redis-data:
-
