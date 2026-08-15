@@ -18,9 +18,15 @@ The public hostname is bound to one shared Outline collection. Authentication,
 settings, administration, and editing API routes are blocked at Nginx. Editors
 continue to work through `wiki.npi.msk.ru`.
 
-Every public page receives a mobile QR button from the patched Outline HTML
-template. The sidecar generates an SVG for the current page and provides a
-download/copy dialog.
+Every instruction receives a mobile QR button from the patched Outline HTML
+template. Public instructions get a stable anonymous URL such as
+`https://kb.it-help.online/kb583104927`; the name is `kb` plus nine random
+digits. A persistent registry guarantees that every public document keeps the
+same unique code, so renaming it does not invalidate printed QR codes. Outline
+still enforces the public share: a code stops resolving while its document is
+outside the published IT Help tree. Internal instructions keep the same QR
+button, but it points to the immutable `wiki.npi.msk.ru/doc/<urlId>` address and
+requires authentication.
 
 ## Deploy
 

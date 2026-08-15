@@ -2,6 +2,9 @@ services:
   outline:
     image: flameshikari/outline-ru:1.9.2
     env_file: ./docker.env
+    environment:
+      MEDIA_S3_BUCKET_NAME: strapi
+      MEDIA_PUBLIC_URL: https://media.npi.msk.ru
     extra_hosts:
       - "wiki.npi.msk.ru:10.233.100.102"
     ports:
@@ -27,6 +30,11 @@ services:
     restart: unless-stopped
     environment:
       PUBLIC_ORIGIN: https://kb.it-help.online
+      PUBLIC_UPSTREAM: http://outline:3000
+      EDITOR_ORIGIN: https://wiki.npi.msk.ru
+      LINK_REGISTRY_PATH: /data/links.json
+    volumes:
+      - qr-data:/data
 
   postgres:
     image: postgres:15
@@ -47,5 +55,6 @@ services:
 
 volumes:
   outline-data:
+  qr-data:
   pg-data:
   redis-data:

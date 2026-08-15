@@ -1,0 +1,68 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+if [[ ${EUID} -ne 0 ]]; then
+    echo "Run this script as root." >&2
+    exit 1
+fi
+
+access_file=/root/it-help.access
+config_dir=/var/lib/gateway-st
+satellite='12L9ZFwhzVpuEKMUNUqkaTLGzwY9G24tbiigLiXpmZWKwmcNDDs@eu1.storj.io:7777'
+
+if [[ ! -s ${access_file} ]]; then
+    echo "Missing ${access_file}" >&2
+    exit 1
+fi
+
+access_value=$(tr -d '\r\n' < "${access_file}")
+
+umask 077
+temporary_access=$(mktemp /etc/gateway-st/generated-access.XXXXXX)
+temporary_log=$(mktemp /tmp/gateway-setup.XXXXXX)
+trap 'rm -f "${temporary_access}" "${temporary_log}"; unset access_value passphrase passphrase_confirmation grant gateway_access gateway_secret' EXIT
+
+if /usr/local/bin/uplink access inspect "${access_value}" >/dev/null 2>&1; then
+    printf '%s' "${access_value}" >"${temporary_access}"
+else
+    read -rsp 'Storj encryption passphrase: ' passphrase
+    echo
+    read -rsp 'Repeat passphrase: ' passphrase_confirmation
+    echo
+
+    if [[ ${passphrase} != "${passphrase_confirmation}" ]]; then
+        echo 'Passphrases do not match.' >&2
+        exit 1
+    fi
+
+    printf '%s' "${passphrase}" | /usr/local/bin/uplink --interactive=false access create \
+        --passphrase-stdin \
+        --satellite-address "${satellite}" \
+        --api-key "${access_value}" \
+        --export-to "${temporary_access}" \
+        --force >/dev/null
+fi
+
+grant=$(tr -d '\r\n' < "${temporary_access}")
+gateway_access=$(openssl rand -hex 16)
+gateway_secret=$(openssl rand -hex 32)
+
+rm -f "${config_dir}/config.yaml"
+if ! runuser -u gateway-st -- /usr/local/bin/gateway --config-dir "${config_dir}" setup \
+    --access "${grant}" \
+    --non-interactive \
+    --server.address 10.233.100.125:7777 \
+    --minio.access-key "${gateway_access}" \
+    --minio.secret-key "${gateway_secret}" >"${temporary_log}" 2>&1; then
+    sed -E 's/[A-Za-z0-9+\/=._-]{16,}/[redacted]/g' "${temporary_log}" >&2
+    exit 1
+fi
+
+chown gateway-st:gateway-st "${config_dir}/config.yaml"
+chmod 0600 "${config_dir}/config.yaml"
+install -o root -g gateway-st -m 0640 "${temporary_access}" /etc/gateway-st/access-grant
+rm -f "${access_file}"
+
+systemctl daemon-reload
+systemctl restart gateway-st
+echo 'GatewayST configured and started.'
