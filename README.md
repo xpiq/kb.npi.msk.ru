@@ -14,9 +14,10 @@ mobile-first instruction service.
 - PostgreSQL 15 and Redis 7
 - Maximum Outline and Nginx upload size: 512 MiB
 
-The public hostname is bound to one shared Outline collection. Authentication,
-settings, administration, and editing API routes are blocked at Nginx. Editors
-continue to work through `wiki.npi.msk.ru`.
+The public hostname uses one shared Outline collection only as its publication
+source. The collection index, direct Outline document routes, search,
+authentication, administration, and general API routes are blocked at Nginx.
+Editors continue to work through `wiki.npi.msk.ru`.
 
 Every instruction receives a mobile QR button from the patched Outline HTML
 template. Public instructions get a stable anonymous URL such as
@@ -24,7 +25,9 @@ template. Public instructions get a stable anonymous URL such as
 digits. A persistent registry guarantees that every public document keeps the
 same unique code, so renaming it does not invalidate printed QR codes. Outline
 still enforces the public share: a code stops resolving while its document is
-outside the published IT Help tree. Internal instructions keep the same QR
+outside the published IT Help tree. The QR sidecar renders an isolated,
+mobile-first page containing only that document; neighboring instructions and
+the collection tree are never exposed. Internal instructions keep the same QR
 button, but it points to the immutable `wiki.npi.msk.ru/doc/<urlId>` address and
 requires authentication.
 

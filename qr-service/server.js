@@ -10,7 +10,7 @@ const port = 3001;
 const publicOrigin = new URL(process.env.PUBLIC_ORIGIN || "https://kb.it-help.online");
 const publicUpstream = new URL(process.env.PUBLIC_UPSTREAM || "http://outline:3000");
 const editorOrigin = new URL(process.env.EDITOR_ORIGIN || "https://wiki.npi.msk.ru");
-const linkCreationHosts = new Set([editorOrigin.hostname, publicOrigin.hostname]);
+const linkCreationHosts = new Set([editorOrigin.hostname]);
 const registryPath = process.env.LINK_REGISTRY_PATH || "/data/links.json";
 const documentCodePattern = /^[A-Za-z0-9]{10}$/;
 const publicCodePattern = /^kb[0-9]{9}$/;
@@ -79,7 +79,30 @@ function canonicalPathFromHtml(html, documentCode) {
   return target.pathname;
 }
 
-async function getPublicDocumentPath(documentCode) {
+function publicDocumentFromHtml(html, documentCode) {
+  const canonicalPath = canonicalPathFromHtml(html, documentCode);
+  if (!canonicalPath) return null;
+
+  const article = html.match(
+    /<div\b[^>]*class=["'][^"']*\bscreenreader-only\b[^"']*["'][^>]*>\s*(<article\b[\s\S]*?<\/article>)\s*<\/div>/i
+  )?.[1];
+  if (!article) return null;
+
+  const titleHtml = article.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "Инструкция";
+  const title = titleHtml
+    .replace(/<[^>]*>/g, "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, value) => String.fromCodePoint(Number.parseInt(value, 16)))
+    .replace(/&#([0-9]+);/g, (_, value) => String.fromCodePoint(Number.parseInt(value, 10)))
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+
+  return { article, canonicalPath, title };
+}
+
+async function getPublicDocument(documentCode) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = value => {
@@ -111,24 +134,21 @@ async function getPublicDocumentPath(documentCode) {
       response.on("data", chunk => {
         if (settled) return;
         body += chunk;
-        const canonicalPath = canonicalPathFromHtml(body, documentCode);
-        if (canonicalPath) {
-          finish(canonicalPath);
-        } else if (body.length > 128 * 1024) {
+        if (body.length > 5 * 1024 * 1024) {
           finish(null);
         }
       });
-      response.on("end", () => finish(canonicalPathFromHtml(body, documentCode)));
+      response.on("end", () => finish(publicDocumentFromHtml(body, documentCode)));
       response.on("error", fail);
     });
-    request.setTimeout(5000, () => request.destroy(new Error("Public document check timed out")));
+    request.setTimeout(10000, () => request.destroy(new Error("Public document check timed out")));
     request.on("error", fail);
     request.end();
   });
 }
 
 async function isPublicDocument(documentCode) {
-  return Boolean(await getPublicDocumentPath(documentCode));
+  return Boolean(await getPublicDocument(documentCode));
 }
 
 const uiScript = String.raw`(() => {
@@ -269,6 +289,84 @@ function escapeHtml(value) {
   })[character]);
 }
 
+function renderPublicDocument(code, document) {
+  const publicPath = `/${code}`;
+  const publicUrl = new URL(publicPath, publicOrigin).toString();
+  const qrPath = `/__qr/code.svg?scope=public&path=${encodeURIComponent(publicPath)}`;
+  const title = escapeHtml(document.title);
+  return `<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <meta name="referrer" content="no-referrer">
+    <title>${title}</title>
+    <style>
+      :root{color-scheme:light dark;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8;color:#171a21}
+      *{box-sizing:border-box}
+      body{margin:0;min-height:100dvh;background:#f4f6f8;color:#171a21}
+      main{width:min(100%,800px);min-height:100dvh;margin:0 auto;padding:clamp(24px,7vw,64px) max(20px,env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));background:#fff}
+      article{font-size:17px;line-height:1.65;overflow-wrap:anywhere}
+      h1{margin:0 0 28px;font-size:clamp(30px,8vw,48px);line-height:1.12;letter-spacing:-.03em}
+      h2{margin:38px 0 14px;font-size:clamp(24px,6vw,32px);line-height:1.2}
+      h3{margin:30px 0 12px;font-size:21px;line-height:1.3}
+      p,ul,ol,blockquote,pre,table{margin:0 0 20px}
+      ul,ol{padding-left:1.4em}
+      li+li{margin-top:8px}
+      a{color:#1769e0;text-underline-offset:3px}
+      img,video{display:block;max-width:100%;height:auto;border-radius:14px}
+      iframe{display:block;width:100%;max-width:100%;aspect-ratio:16/9;border:0;border-radius:14px}
+      figure{margin:24px 0}
+      figcaption{margin-top:8px;color:#667085;font-size:14px}
+      blockquote{padding:2px 0 2px 18px;border-left:4px solid #1769e0;color:#475467}
+      pre{max-width:100%;overflow:auto;padding:16px;border-radius:12px;background:#101828;color:#f2f4f7;font:14px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}
+      code{padding:.12em .32em;border-radius:5px;background:#eef2f6;font:0.88em ui-monospace,SFMono-Regular,Consolas,monospace}
+      pre code{padding:0;background:transparent;color:inherit}
+      table{display:block;width:100%;overflow-x:auto;border-collapse:collapse}
+      th,td{padding:10px 12px;border:1px solid #d0d5dd;text-align:left;vertical-align:top}
+      hr{margin:32px 0;border:0;border-top:1px solid #e4e7ec}
+      .attachment{display:flex;align-items:center;gap:12px;min-height:64px;margin:22px 0;padding:14px 16px;border:1px solid #cfd8e6;border-radius:14px;background:#f8faff;color:#172033;text-decoration:none;font-weight:700}
+      .attachment::before{content:"↓";display:grid;place-items:center;flex:0 0 38px;height:38px;border-radius:10px;background:#1769e0;color:#fff;font-size:22px}
+      .attachment::after{content:"Скачать";margin-left:auto;color:#1769e0;font-size:14px;font-weight:700}
+      .share{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:10}
+      .share summary{display:grid;place-items:center;width:54px;height:54px;border-radius:999px;background:#1769e0;color:#fff;box-shadow:0 8px 28px #10182840;font-weight:800;cursor:pointer;list-style:none;user-select:none}
+      .share summary::-webkit-details-marker{display:none}
+      .share[open] summary{margin-left:auto}
+      .share-card{position:absolute;right:0;bottom:66px;width:min(330px,calc(100vw - 32px));padding:18px;border:1px solid #d0d5dd;border-radius:18px;background:#fff;box-shadow:0 18px 54px #10182830;text-align:center}
+      .share-card strong{display:block;margin-bottom:10px;font-size:18px}
+      .share-card img{width:min(250px,70vw);margin:0 auto 10px;border-radius:0}
+      .share-card code{display:block;margin-bottom:12px;background:transparent;color:#475467;font-size:12px;overflow-wrap:anywhere}
+      .share-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .share-actions a{padding:10px 8px;border:1px solid #d0d5dd;border-radius:10px;text-decoration:none;font-size:14px;font-weight:700}
+      footer{margin-top:48px;padding-top:18px;border-top:1px solid #e4e7ec;color:#98a2b3;font-size:13px}
+      @media(max-width:520px){main{padding-top:28px}.attachment{align-items:flex-start}.attachment::after{display:none}}
+      @media(prefers-color-scheme:dark){:root,body{background:#11151c;color:#f2f4f7}main{background:#171c24}.attachment{border-color:#344054;background:#1f2937;color:#f9fafb}.share-card{border-color:#344054;background:#1f2937;color:#f9fafb}code{background:#293241;color:#f2f4f7}th,td{border-color:#475467}hr,footer{border-color:#344054}}
+      @media print{body,main{background:#fff;color:#000}.share{display:none}main{width:100%;padding:0}}
+    </style>
+  </head>
+  <body>
+    <main>
+      ${document.article}
+      <footer>IT Help · отдельная публичная инструкция</footer>
+    </main>
+    <details class="share">
+      <summary aria-label="Показать QR-код">QR</summary>
+      <div class="share-card">
+        <strong>QR-код инструкции</strong>
+        <img src="${escapeHtml(qrPath)}" alt="QR-код этой инструкции" width="250" height="250">
+        <code>${escapeHtml(publicUrl)}</code>
+        <div class="share-actions">
+          <a href="${escapeHtml(qrPath)}" download="instruction-${code}-qr.svg">Скачать QR</a>
+          <a href="${escapeHtml(publicUrl)}">Открыть ссылку</a>
+        </div>
+      </div>
+    </details>
+  </body>
+</html>`;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://localhost");
@@ -300,13 +398,16 @@ const server = http.createServer(async (req, res) => {
         return send(res, 404, "text/plain; charset=utf-8", "Instruction not found\n", { "Cache-Control": "no-store" });
       }
       const documentCode = registry.codes[code];
-      const canonicalPath = await getPublicDocumentPath(documentCode);
-      if (!canonicalPath) {
+      const document = await getPublicDocument(documentCode);
+      if (!document) {
         return send(res, 404, "text/plain; charset=utf-8", "Instruction not found\n", { "Cache-Control": "no-store" });
       }
-      return send(res, 302, "text/plain; charset=utf-8", "Redirecting\n", {
+      const html = renderPublicDocument(code, document);
+      return send(res, 200, "text/html; charset=utf-8", req.method === "HEAD" ? "" : html, {
         "Cache-Control": "no-store",
-        Location: canonicalPath,
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src https: data: blob:; media-src https: data: blob:; frame-src https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "Referrer-Policy": "no-referrer",
+        "X-Frame-Options": "DENY",
       });
     }
     if (req.method === "GET" && url.pathname === "/view") {
