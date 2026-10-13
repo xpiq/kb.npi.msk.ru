@@ -62,22 +62,73 @@ function getOrCreatePublicCode(documentCode) {
   return operation;
 }
 
-async function isPublicDocument(documentCode) {
+function canonicalPathFromHtml(html, documentCode) {
+  const linkTags = html.match(/<link\b[^>]*>/gi) || [];
+  const canonicalTag = linkTags.find(tag => /\brel=["']canonical["']/i.test(tag));
+  const href = canonicalTag?.match(/\bhref=["']([^"']+)["']/i)?.[1];
+  if (!href) return null;
+
+  const target = new URL(href, publicOrigin);
+  const documentSlug = target.pathname.match(/^\/doc\/([^/]+)\/?$/)?.[1];
+  if (
+    target.origin !== publicOrigin.origin ||
+    (documentSlug !== documentCode && !documentSlug?.endsWith(`-${documentCode}`))
+  ) {
+    return null;
+  }
+  return target.pathname;
+}
+
+async function getPublicDocumentPath(documentCode) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const fail = error => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
     const request = http.request(new URL(`/doc/${documentCode}`, publicUpstream), {
-      method: "HEAD",
+      method: "GET",
       headers: {
         Host: publicOrigin.host,
         "X-Forwarded-Proto": publicOrigin.protocol.slice(0, -1),
       },
     }, response => {
-      response.resume();
-      resolve(response.statusCode === 200);
+      if (response.statusCode !== 200) {
+        response.resume();
+        finish(null);
+        return;
+      }
+
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => {
+        if (settled) return;
+        body += chunk;
+        const canonicalPath = canonicalPathFromHtml(body, documentCode);
+        if (canonicalPath) {
+          finish(canonicalPath);
+        } else if (body.length > 128 * 1024) {
+          finish(null);
+        }
+      });
+      response.on("end", () => finish(canonicalPathFromHtml(body, documentCode)));
+      response.on("error", fail);
     });
     request.setTimeout(5000, () => request.destroy(new Error("Public document check timed out")));
-    request.on("error", reject);
+    request.on("error", fail);
     request.end();
   });
+}
+
+async function isPublicDocument(documentCode) {
+  return Boolean(await getPublicDocumentPath(documentCode));
 }
 
 const uiScript = String.raw`(() => {
@@ -248,12 +299,14 @@ const server = http.createServer(async (req, res) => {
       if (!publicCodePattern.test(code) || !registry.codes[code]) {
         return send(res, 404, "text/plain; charset=utf-8", "Instruction not found\n", { "Cache-Control": "no-store" });
       }
-      if (!(await isPublicDocument(registry.codes[code]))) {
+      const documentCode = registry.codes[code];
+      const canonicalPath = await getPublicDocumentPath(documentCode);
+      if (!canonicalPath) {
         return send(res, 404, "text/plain; charset=utf-8", "Instruction not found\n", { "Cache-Control": "no-store" });
       }
       return send(res, 302, "text/plain; charset=utf-8", "Redirecting\n", {
         "Cache-Control": "no-store",
-        Location: `/doc/${registry.codes[code]}`,
+        Location: canonicalPath,
       });
     }
     if (req.method === "GET" && url.pathname === "/view") {
