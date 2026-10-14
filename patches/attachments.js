@@ -10,6 +10,8 @@ Object.defineProperty(exports, "default", {
 });
 const _koarouter = /*#__PURE__*/ _interop_require_default(require("koa-router"));
 const _nodecrypto = require("node:crypto");
+const _jsonwebtoken = /*#__PURE__*/ _interop_require_default(require("jsonwebtoken"));
+const _constants = require("../../../../shared/constants");
 const _types = require("../../../../shared/types");
 const _files = require("../../../../shared/utils/files");
 const _env = /*#__PURE__*/ _interop_require_default(require("../../../env"));
@@ -128,16 +130,19 @@ router.post("attachments.create", (0, _rateLimiter.rateLimiter)(_RateLimiter.Rat
     const { id, name, documentId, contentType, size, preset } = ctx.input.body;
     const { auth, transaction } = ctx.state;
     const { user } = auth;
+    if (documentId) {
+        const document = await _models.Document.findByPk(documentId, {
+            userId: user.id,
+            transaction
+        });
+        (0, _policies.authorize)(user, "update", document);
+    }
     // All user types can upload an avatar so no additional authorization is needed.
     if (preset === _types.AttachmentPreset.Avatar) {
         (0, _validation.assertIn)(contentType, _validations.AttachmentValidation.avatarContentTypes);
     } else {
-        if (preset === _types.AttachmentPreset.DocumentAttachment && documentId) {
-            const document = await _models.Document.findByPk(documentId, {
-                userId: user.id,
-                transaction
-            });
-            (0, _policies.authorize)(user, "update", document);
+        if (preset === _types.AttachmentPreset.WorkspaceImport) {
+            (0, _policies.authorize)(user, "createImport", user.team);
         }
         if (preset === _types.AttachmentPreset.Emoji) {
             (0, _validation.assertIn)(contentType, _validations.AttachmentValidation.emojiContentTypes);
@@ -166,12 +171,20 @@ router.post("attachments.create", (0, _rateLimiter.rateLimiter)(_RateLimiter.Rat
         teamId: user.teamId,
         userId: user.id
     });
+    const uploadSig = _jsonwebtoken.default.sign({
+        key,
+        type: "attachment-upload"
+    }, _env.default.SECRET_KEY, {
+        expiresIn: 3600
+    });
     ctx.body = {
         data: {
             mode: "post",
             uploadUrl: "/api/files.create",
             form: {
-                key
+                key,
+                sig: uploadSig,
+                [_constants.CSRF.fieldName]: ctx.cookies.get(_constants.CSRF.cookieName) || ""
             },
             attachment: {
                 ...(0, _presenters.presentAttachment)(attachment),
@@ -278,10 +291,14 @@ const handleAttachmentsRedirect = async (ctx)=>{
         ctx.redirect(await attachment.signedUrl);
     }
 };
-router.get("attachments.redirect", (0, _authentication.default)({
-    optional: true
-}), (0, _validate.default)(_schema.AttachmentsRedirectSchema), handleAttachmentsRedirect);
-router.post("attachments.redirect", (0, _authentication.default)({
-    optional: true
-}), (0, _validate.default)(_schema.AttachmentsRedirectSchema), handleAttachmentsRedirect);
+router.register("attachments.redirect", [
+    "get",
+    "post"
+], [
+    (0, _authentication.default)({
+        optional: true
+    }),
+    (0, _validate.default)(_schema.AttachmentsRedirectSchema),
+    handleAttachmentsRedirect
+]);
 const _default = router;

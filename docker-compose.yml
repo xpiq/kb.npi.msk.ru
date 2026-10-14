@@ -1,6 +1,6 @@
 services:
   outline:
-    image: flameshikari/outline-ru:1.9.2
+    image: flameshikari/outline-ru:1.10.1
     env_file: ./docker.env
     environment:
       MEDIA_S3_BUCKET_NAME: strapi

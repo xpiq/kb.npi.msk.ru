@@ -9,7 +9,7 @@ mobile-first instruction service.
 
 ## Runtime
 
-- Outline RU `1.9.2` on port `3000`
+- Outline RU `1.10.1` on port `3000`
 - QR sidecar on port `3001`
 - PostgreSQL 15 and Redis 7
 - Maximum Outline and Nginx upload size: 512 MiB
@@ -39,8 +39,9 @@ cp docker.env.example docker.env
 docker compose up -d --build
 ```
 
-The mounted runtime patches are in `patches/`. Reverse-proxy configurations for
-the editor and public hostname are in `nginx/`.
+The mounted runtime patches are in `patches/` and are rebased on the matching
+Outline `1.10.1` sources. Reverse-proxy configurations for the editor and public
+hostname are in `nginx/`.
 
 ## Storj status
 

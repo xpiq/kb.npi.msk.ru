@@ -327,9 +327,16 @@ function renderPublicDocument(code, document) {
       table{display:block;width:100%;overflow-x:auto;border-collapse:collapse}
       th,td{padding:10px 12px;border:1px solid #d0d5dd;text-align:left;vertical-align:top}
       hr{margin:32px 0;border:0;border-top:1px solid #e4e7ec}
-      .attachment{display:flex;align-items:center;gap:12px;min-height:64px;margin:22px 0;padding:14px 16px;border:1px solid #cfd8e6;border-radius:14px;background:#f8faff;color:#172033;text-decoration:none;font-weight:700}
+      .attachment,.component-attachment>a{display:flex;align-items:center;gap:12px;min-height:64px;margin:22px 0;padding:14px 16px;border:1px solid #cfd8e6;border-radius:14px;background:#f8faff;color:#172033;text-decoration:none;font-weight:700}
       .attachment::before{content:"↓";display:grid;place-items:center;flex:0 0 38px;height:38px;border-radius:10px;background:#1769e0;color:#fff;font-size:22px}
       .attachment::after{content:"Скачать";margin-left:auto;color:#1769e0;font-size:14px;font-weight:700}
+      .component-attachment>a{display:grid;grid-template-columns:44px minmax(0,1fr);color:#172033}
+      .component-attachment>a>span:first-child{display:grid;place-items:center;width:44px;height:44px;border-radius:10px;color:#fff;font-size:12px;text-transform:uppercase}
+      .component-attachment>a>div{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 12px;min-width:0}
+      .component-attachment>a strong{grid-column:1;overflow-wrap:anywhere}
+      .component-attachment>a strong+span{grid-column:1;color:#667085;font-size:13px;font-weight:500}
+      .component-attachment>a strong+span+div{grid-column:2;grid-row:1/3;color:#1769e0}
+      .component-attachment>a svg{display:block;width:24px;height:24px}
       .share{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:10}
       .share summary{display:grid;place-items:center;width:54px;height:54px;border-radius:999px;background:#1769e0;color:#fff;box-shadow:0 8px 28px #10182840;font-weight:800;cursor:pointer;list-style:none;user-select:none}
       .share summary::-webkit-details-marker{display:none}
@@ -342,7 +349,7 @@ function renderPublicDocument(code, document) {
       .share-actions a{padding:10px 8px;border:1px solid #d0d5dd;border-radius:10px;text-decoration:none;font-size:14px;font-weight:700}
       footer{margin-top:48px;padding-top:18px;border-top:1px solid #e4e7ec;color:#98a2b3;font-size:13px}
       @media(max-width:520px){main{padding-top:28px}.attachment{align-items:flex-start}.attachment::after{display:none}}
-      @media(prefers-color-scheme:dark){:root,body{background:#11151c;color:#f2f4f7}main{background:#171c24}.attachment{border-color:#344054;background:#1f2937;color:#f9fafb}.share-card{border-color:#344054;background:#1f2937;color:#f9fafb}code{background:#293241;color:#f2f4f7}th,td{border-color:#475467}hr,footer{border-color:#344054}}
+      @media(prefers-color-scheme:dark){:root,body{background:#11151c;color:#f2f4f7}main{background:#171c24}.attachment,.component-attachment>a{border-color:#344054;background:#1f2937;color:#f9fafb}.component-attachment>a strong+span{color:#98a2b3}.share-card{border-color:#344054;background:#1f2937;color:#f9fafb}code{background:#293241;color:#f2f4f7}th,td{border-color:#475467}hr,footer{border-color:#344054}}
       @media print{body,main{background:#fff;color:#000}.share{display:none}main{width:100%;padding:0}}
     </style>
   </head>

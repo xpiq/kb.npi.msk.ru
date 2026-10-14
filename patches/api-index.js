@@ -131,10 +131,10 @@ if (!_env.default.isCloudHosted) {
 if (_env.default.isDevelopment) {
     router.use("/", _developer.default.routes());
 }
-router.post("*", (ctx)=>{
-    ctx.throw((0, _errors.NotFoundError)("Endpoint not found"));
-});
-router.get("*", (ctx)=>{
+router.register("*", [
+    "get",
+    "post"
+], (ctx)=>{
     ctx.throw((0, _errors.NotFoundError)("Endpoint not found"));
 });
 // Router is embedded in a Koa application wrapper, because koa-router does not

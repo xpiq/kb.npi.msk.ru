@@ -1,5 +1,6 @@
 docker.env
 .env
+.DS_Store
 *.log
 *.tmp
 node_modules/

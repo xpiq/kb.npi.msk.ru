@@ -26,15 +26,18 @@ function _ts_decorate(decorators, target, key, desc) {
     else for(var i = decorators.length - 1; i >= 0; i--)if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 }
+function contextFromCtx(ctx) {
+    return ctx.context ?? {
+        auth: ctx.state?.auth,
+        transaction: ctx.state?.transaction,
+        ip: ctx.request?.ip
+    };
+}
 let Model = class Model extends _sequelizetypescript.Model {
     /**
-    * Validates this instance, and if the validation passes, persists it to the database.
+   * Validates this instance, and if the validation passes, persists it to the database.
    */ saveWithCtx(ctx, options, eventOpts) {
-        const context = ctx.context ?? {
-            auth: ctx.state?.auth,
-            transaction: ctx.state?.transaction,
-            ip: ctx.request?.ip
-        };
+        const context = contextFromCtx(ctx);
         const hookContext = {
             ...context,
             event: {
@@ -50,11 +53,7 @@ let Model = class Model extends _sequelizetypescript.Model {
     /**
    * This is the same as calling `set` and then calling `save`.
    */ updateWithCtx(ctx, keys, eventOpts) {
-        const context = ctx.context ?? {
-            auth: ctx.state?.auth,
-            transaction: ctx.state?.transaction,
-            ip: ctx.request?.ip
-        };
+        const context = contextFromCtx(ctx);
         const hookContext = {
             ...context,
             event: {
@@ -69,11 +68,7 @@ let Model = class Model extends _sequelizetypescript.Model {
    * Destroy the row corresponding to this instance. Depending on your setting for paranoid, the row will
    * either be completely deleted, or have its deletedAt timestamp set to the current time.
    */ destroyWithCtx(ctx, eventOpts) {
-        const context = ctx.context ?? {
-            auth: ctx.state?.auth,
-            transaction: ctx.state?.transaction,
-            ip: ctx.request?.ip
-        };
+        const context = contextFromCtx(ctx);
         const hookContext = {
             ...context,
             event: {
@@ -86,11 +81,7 @@ let Model = class Model extends _sequelizetypescript.Model {
     /**
    * Restore the row corresponding to this instance. Only available for paranoid models.
    */ restoreWithCtx(ctx, eventOpts) {
-        const context = ctx.context ?? {
-            auth: ctx.state?.auth,
-            transaction: ctx.state?.transaction,
-            ip: ctx.request?.ip
-        };
+        const context = contextFromCtx(ctx);
         const hookContext = {
             ...context,
             event: {
@@ -109,11 +100,7 @@ let Model = class Model extends _sequelizetypescript.Model {
    * @param eventOpts Optional event override options.
    * @returns a tuple of the instance and a boolean indicating if it was created.
    */ static async findOrCreateWithCtx(ctx, options, eventOpts) {
-        const context = ctx.context ?? {
-            auth: ctx.state?.auth,
-            transaction: ctx.state?.transaction,
-            ip: ctx.request?.ip
-        };
+        const context = contextFromCtx(ctx);
         const hookContext = {
             ...context,
             event: {
@@ -160,13 +147,31 @@ let Model = class Model extends _sequelizetypescript.Model {
         }
     }
     /**
+   * Destroys every row that matches the given options, publishing an event for
+   * each. Rows are matched when the destroy runs, so rows written after the
+   * options were prepared are destroyed too.
+   *
+   * @param ctx The API context.
+   * @param options The destroy options.
+   * @param eventOpts Optional event override options.
+   * @returns the number of destroyed rows.
+   */ static destroyWithCtx(ctx, options, eventOpts) {
+        const context = contextFromCtx(ctx);
+        const hookContext = {
+            ...context,
+            ...options,
+            individualHooks: true,
+            event: {
+                ...eventOpts,
+                publish: true
+            }
+        };
+        return this.destroy(hookContext);
+    }
+    /**
    * Builds a new model instance and calls save on it.
    */ static createWithCtx(ctx, values, eventOpts, createOpts) {
-        const context = ctx.context ?? {
-            auth: ctx.state?.auth,
-            transaction: ctx.state?.transaction,
-            ip: ctx.request?.ip
-        };
+        const context = contextFromCtx(ctx);
         const hookContext = {
             ...context,
             ...createOpts,
@@ -220,13 +225,36 @@ let Model = class Model extends _sequelizetypescript.Model {
         if (context.event.name?.includes(".")) {
             throw (0, _errors.InternalError)(`Event name (${context.event.name}) should not include a period, the namespace is automatically prefixed`);
         }
+        const collectionId = "collectionId" in model ? model.collectionId : model instanceof models.collection ? model.id : undefined;
+        const documentId = "documentId" in model ? model.documentId : model instanceof models.document ? model.id : undefined;
+        let teamId = "teamId" in model ? model.teamId : model instanceof models.team ? model.id : context.auth?.user?.teamId;
+        // Membership-style models (e.g. UserMembership, GroupMembership) carry no
+        // teamId of their own, so derive it from the associated document or
+        // collection when the mutating context has no authenticated team. This
+        // guarantees events are never persisted without a team.
+        if (!teamId && (documentId || collectionId)) {
+            const parent = documentId ? await models.document.unscoped().findByPk(documentId, {
+                attributes: [
+                    "teamId"
+                ],
+                paranoid: false,
+                transaction: context.transaction
+            }) : await models.collection.unscoped().findByPk(collectionId, {
+                attributes: [
+                    "teamId"
+                ],
+                paranoid: false,
+                transaction: context.transaction
+            });
+            teamId = parent?.getDataValue("teamId") ?? teamId;
+        }
         const attrs = {
             name: `${namespace}.${context.event.name ?? name}`,
             modelId: "modelId" in model ? model.modelId : model.id,
-            collectionId: "collectionId" in model ? model.collectionId : model instanceof models.collection ? model.id : undefined,
-            documentId: "documentId" in model ? model.documentId : model instanceof models.document ? model.id : undefined,
+            collectionId,
+            documentId,
             userId: "userId" in model ? model.userId : model instanceof models.user ? model.id : undefined,
-            teamId: "teamId" in model ? model.teamId : model instanceof models.team ? model.id : context.auth?.user.teamId,
+            teamId,
             actorId: context.auth?.user?.id ?? (model instanceof models.user && name === "create" ? model.id : undefined),
             authType: context.auth?.type,
             ip: context.ip,
@@ -252,20 +280,79 @@ let Model = class Model extends _sequelizetypescript.Model {
    * @param callback The function to call for each batch of results
    * @return The total number of results processed.
    */ static async findAllInBatches(query, callback) {
+        const { batchLimit = 10, totalLimit = Infinity, offset, ...rest } = query;
+        // A raw query with an explicit order is trusted to be unique (it may
+        // select aggregates where the primary key is unavailable), otherwise
+        // append the primary key column(s) to guarantee a total, stable order.
+        const order = [
+            ...rest.order ?? []
+        ];
+        if (!rest.raw || order.length === 0) {
+            for (const pk of this.primaryKeyAttributes){
+                if (!order.some(([column])=>column === pk)) {
+                    order.push([
+                        pk,
+                        "ASC"
+                    ]);
+                }
+            }
+        }
+        // The cursor columns must be selected for their values to be read back,
+        // so add any missing ones when the caller restricts attributes.
+        let attributes = rest.attributes;
+        if (Array.isArray(attributes) && attributes.every((attr)=>typeof attr === "string")) {
+            attributes = [
+                ...new Set([
+                    ...attributes,
+                    ...order.map(([column])=>column)
+                ])
+            ];
+        }
+        const cursorValue = (row, column)=>typeof row.get === "function" ? row.get(column) : row[column];
+        const buildCursor = (lastRow)=>({
+                [_sequelize.Op.or]: order.map(([column, direction], index)=>{
+                    const clause = {};
+                    for (const [prevColumn] of order.slice(0, index)){
+                        clause[prevColumn] = {
+                            [_sequelize.Op.eq]: cursorValue(lastRow, prevColumn)
+                        };
+                    }
+                    clause[column] = {
+                        [direction === "DESC" ? _sequelize.Op.lt : _sequelize.Op.gt]: cursorValue(lastRow, column)
+                    };
+                    return clause;
+                })
+            });
+        let cursor;
+        let currentOffset = offset ?? 0;
         let total = 0;
-        const mappedQuery = {
-            ...query,
-            offset: query.offset ?? 0,
-            limit: query.batchLimit ?? 10
-        };
+        let limit;
         let results;
         do {
+            limit = Math.min(batchLimit, totalLimit - total);
+            const findOptions = {
+                ...rest,
+                attributes,
+                order,
+                limit,
+                offset: currentOffset,
+                where: cursor ? {
+                    [_sequelize.Op.and]: [
+                        rest.where ?? {},
+                        cursor
+                    ]
+                } : rest.where
+            };
             // @ts-expect-error this T
-            results = await this.findAll(mappedQuery);
+            results = await this.findAll(findOptions);
             total += results.length;
-            await callback(results, mappedQuery);
-            mappedQuery.offset += mappedQuery.limit;
-        }while (results.length >= mappedQuery.limit && (mappedQuery.totalLimit ?? Infinity) > mappedQuery.offset)
+            await callback(results, findOptions);
+            if (results.length > 0) {
+                cursor = buildCursor(results[results.length - 1]);
+            }
+            // The cursor supersedes offset-based pagination after the first batch.
+            currentOffset = 0;
+        }while (results.length >= limit && total < totalLimit)
         return total;
     }
     /**
@@ -327,6 +414,11 @@ let Model = class Model extends _sequelizetypescript.Model {
         return Object.keys(attrs).filter((attr)=>attrs[attr].type instanceof _sequelize.DataTypes.BLOB);
     }
 };
+/**
+   * Disables Sequelize's public class field detection, which reports a false positive for the
+   * per-instance accessors that sequelize-strict-attributes installs on attributes omitted from
+   * a query's selection.
+   */ Model._overwrittenAttributesChecked = true;
 _ts_decorate([
     _sequelizetypescript.BeforeSave
 ], Model, "beforeSaveEvent", null);

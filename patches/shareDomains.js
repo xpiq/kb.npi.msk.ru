@@ -28,7 +28,18 @@ function shareDomains() {
                     revokedAt: {
                         [_sequelize.Op.is]: null
                     }
-                }
+                },
+                include: [
+                    {
+                        association: "team",
+                        required: true,
+                        where: {
+                            suspendedAt: {
+                                [_sequelize.Op.is]: null
+                            }
+                        }
+                    }
+                ]
             });
             ctx.state.rootShare = share;
         }

@@ -26,7 +26,7 @@ index }) {
     const collection = await _models.Collection.findByPk(document.collectionId, {
         includeDocumentStructure: true,
         transaction,
-        lock: _sequelize.Transaction.LOCK.UPDATE,
+        lock: _sequelize.Transaction.LOCK.NO_KEY_UPDATE,
         paranoid: false
     });
     let newCollection = collection;
@@ -34,7 +34,7 @@ index }) {
         newCollection = await _models.Collection.findByPk(collectionId, {
             includeDocumentStructure: true,
             transaction,
-            lock: _sequelize.Transaction.LOCK.UPDATE
+            lock: _sequelize.Transaction.LOCK.NO_KEY_UPDATE
         });
     } else if (!collectionId) {
         newCollection = null;
