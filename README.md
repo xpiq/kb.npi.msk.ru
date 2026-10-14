@@ -5,6 +5,7 @@ mobile-first instruction service.
 
 - Editor: `https://wiki.npi.msk.ru`
 - Public instructions: `https://kb.it-help.online`
+- RustDesk download shortcut: `https://rust.npi.msk.ru`
 - Storj public domain: `https://media.npi.msk.ru` (bucket `strapi`)
 
 ## Runtime
@@ -42,6 +43,17 @@ docker compose up -d --build
 The mounted runtime patches are in `patches/` and are rebased on the matching
 Outline `1.10.1` sources. Reverse-proxy configurations for the editor and public
 hostname are in `nginx/`.
+
+`nginx/rust.npi.msk.ru.redirect.conf` is an isolated temporary redirect to the
+public RustDesk download instruction at
+`https://kb.it-help.online/kb478550122`. The vhost uses the existing
+`*.npi.msk.ru` certificate and does not proxy to, or modify, the Outline
+service. Its DNS A record must point to the shared Nginx proxy
+(`79.137.227.154` in public DNS and `10.233.100.102` in internal split-DNS).
+
+The reviewed, confirmation-gated Keycloak migration procedure and the current
+four-user mapping preview are in `docs/sso-keycloak-rollout.md`. No SSO changes
+are applied by that document.
 
 ## Storj status
 

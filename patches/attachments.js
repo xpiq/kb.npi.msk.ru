@@ -22,6 +22,7 @@ const _authentication = /*#__PURE__*/ _interop_require_default(require("../../..
 const _rateLimiter = require("../../../middlewares/rateLimiter");
 const _transaction = require("../../../middlewares/transaction");
 const _validate = /*#__PURE__*/ _interop_require_default(require("../../../middlewares/validate"));
+const _csrf = require("../../../utils/csrf");
 const _models = require("../../../models");
 const _AttachmentHelper = /*#__PURE__*/ _interop_require_default(require("../../../models/helpers/AttachmentHelper"));
 const _policies = require("../../../policies");
@@ -184,7 +185,7 @@ router.post("attachments.create", (0, _rateLimiter.rateLimiter)(_RateLimiter.Rat
             form: {
                 key,
                 sig: uploadSig,
-                [_constants.CSRF.fieldName]: ctx.cookies.get(_constants.CSRF.cookieName) || ""
+                [_constants.CSRF.fieldName]: (0, _csrf.getTokenFromCookie)(ctx) || ""
             },
             attachment: {
                 ...(0, _presenters.presentAttachment)(attachment),
