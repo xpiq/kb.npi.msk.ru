@@ -29,8 +29,10 @@ still enforces the public share: a code stops resolving while its document is
 outside the published IT Help tree. The QR sidecar renders an isolated,
 mobile-first page containing only that document; neighboring instructions and
 the collection tree are never exposed. Internal instructions keep the same QR
-button, but it points to the immutable `wiki.npi.msk.ru/doc/<urlId>` address and
-requires authentication.
+button, but it points to Outline's full canonical
+`wiki.npi.msk.ru/doc/<slug>-<urlId>` address and requires authentication. The
+full path is preserved because the deployed Outline fork does not reliably
+resolve the shortened `/doc/<urlId>` form after login.
 
 ## Deploy
 

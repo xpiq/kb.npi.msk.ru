@@ -220,7 +220,10 @@ const uiScript = String.raw`(() => {
       let scope = "public";
       if (!response.ok) {
         if (response.status === 403) {
-          const path = "/doc/" + documentCode;
+          // Keep Outline's full canonical path for internal documents. The
+          // shortened /doc/<urlId> form does not reliably survive the login
+          // and OIDC redirect flow in the deployed fork.
+          const path = location.pathname;
           instruction = { path, url: editorOrigin + path };
           scope = "editor";
         } else {
